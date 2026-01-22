@@ -1,0 +1,19 @@
+# Python compiled files
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Jupyter / IPython checkpoints
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+*.code-workspace
+
+# Mac / Windows system files
+.DS_Store
+Thumbs.db
