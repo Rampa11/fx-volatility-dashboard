@@ -4,5 +4,6 @@ pandas
 numpy
 matplotlib
 plotly
-streamlit-authenticator
+streamlit-authenticator==0.11.1
+PyYAML
 
