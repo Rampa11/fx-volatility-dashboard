@@ -1,6 +1,6 @@
+import streamlit as st
 import streamlit_authenticator as stauth
 import yaml
-import streamlit as st
 
 # ---- LOGIN ----
 with open("users.yaml") as file:
@@ -9,20 +9,18 @@ with open("users.yaml") as file:
 authenticator = stauth.Authenticate(
     config["credentials"],
     "fx_dashboard",
-    "abcdef123456",  # this is the cookie key
+    "abcdef123456",
     cookie_expiry_days=30
 )
 
-name, authentication_status, username = authenticator.login("Login", "main")
-
-
+name, authentication_status, username = authenticator.login("Login", "sidebar")
 
 if authentication_status is False:
     st.error("Invalid username or password")
-    st.stop()  # stops app from running if login fails
+    st.stop()
 elif authentication_status is None:
     st.warning("Please enter your login details")
-    st.stop()  # stops app from running until login
+    st.stop()
 
 
 import streamlit as st
