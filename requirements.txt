@@ -4,6 +4,3 @@ pandas
 numpy
 matplotlib
 plotly
-streamlit-authenticator==0.11.1
-PyYAML
-
