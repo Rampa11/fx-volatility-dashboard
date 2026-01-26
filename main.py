@@ -2,37 +2,38 @@ import streamlit as st
 import yaml
 import hashlib
 
-# ---- LOGIN ----
+# ---- LOAD USERS ----
 with open("users.yaml") as file:
     config = yaml.safe_load(file)
 
 # Extract credentials
 credentials = config["credentials"]["usernames"]
 
-def check_password(username, password):
-    if username in credentials:
-        hashed_pw = credentials[username]["password"]
-        return hashlib.sha256(password.encode()).hexdigest() == hashed_pw
-    return False
-
+# ---- LOGIN WIDGETS ----
 st.sidebar.title("Login")
 username = st.sidebar.text_input("Username")
 password = st.sidebar.text_input("Password", type="password")
 login_btn = st.sidebar.button("Login")
 
-if login_btn:
-    if check_password(username, password):
-        st.sidebar.success(f"Welcome {username}!")
-        authentication_status = True
-    else:
-        st.sidebar.error("Invalid username or password")
-        authentication_status = False
-else:
-    authentication_status = None
+# ---- LOGIN LOGIC ----
+authentication_status = None
 
-if authentication_status is False:
-    st.stop()
-elif authentication_status is None:
+if login_btn:
+    if username in credentials:
+        # Hash entered password to compare
+        hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+        if hashed_pw == credentials[username]["password"]:
+            authentication_status = True
+            st.sidebar.success(f"Welcome {username}!")
+        else:
+            authentication_status = False
+            st.sidebar.error("Invalid username or password")
+    else:
+        authentication_status = False
+        st.sidebar.error("Invalid username or password")
+
+# ---- BLOCK APP IF NOT AUTHENTICATED ----
+if authentication_status is not True:
     st.stop()
 
 
