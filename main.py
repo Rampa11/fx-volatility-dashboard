@@ -22,7 +22,7 @@ if login_btn:
     if username in credentials:
         # Hash entered password to compare
         hashed_pw = hashlib.sha256(password.encode()).hexdigest()
-        if hashed_pw == credentials[username]["password"]:
+        if password == credentials[username]["password"]:
             authentication_status = True
             st.sidebar.success(f"Welcome {username}!")
         else:
