@@ -14,7 +14,8 @@ authenticator = stauth.Authenticate(
 )
 
 name, authentication_status, username = authenticator.login(
-    "Login", "main"
+    name="Login",
+    location="main"
 )
 
 if authentication_status is False:
