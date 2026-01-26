@@ -124,19 +124,35 @@ def calculate_annualized_volatility(series, interval):
 # ======================================================
 # ATR (PIP-BASED VOLATILITY)
 # ======================================================
+
 def calculate_atr(df, period=14):
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
+    if df is None or df.empty or len(df) < period:
+        return None
 
-    tr1 = high - low
-    tr2 = (high - close.shift()).abs()
-    tr3 = (low - close.shift()).abs()
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
 
-    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = true_range.rolling(window=period).mean()
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low - close.shift()).abs()
+    ], axis=1).max(axis=1)
+
+    atr = tr.rolling(window=period).mean()
+
+    if atr.empty:
+        return None
 
     return atr.iloc[-1]
+
+
+atr_value = calculate_atr(df)
+
+if atr_value is not None:
+    st.metric("ATR", round(atr_value, 4))
+else:
+    st.info("ATR not available for the selected period")
 # ======================================================
 # 📈 SINGLE PAIR OUTPUT
 # ======================================================
