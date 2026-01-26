@@ -15,8 +15,6 @@ authenticator = stauth.Authenticate(
 
 name, authentication_status, username = authenticator.login("Login", "main")
 
-)
-
 if authentication_status is False:
     st.error("Invalid username or password")
     st.stop()  # stops app from running if login fails
