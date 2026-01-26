@@ -1,25 +1,38 @@
 import streamlit as st
-import streamlit_authenticator as stauth
 import yaml
+import hashlib
 
 # ---- LOGIN ----
 with open("users.yaml") as file:
     config = yaml.safe_load(file)
 
-authenticator = stauth.Authenticate(
-    config["credentials"],
-    "fx_dashboard",
-    "abcdef123456",
-    cookie_expiry_days=30
-)
+# Extract credentials
+credentials = config["credentials"]["usernames"]
 
-name, authentication_status, username = authenticator.login("Login", "sidebar")
+def check_password(username, password):
+    if username in credentials:
+        hashed_pw = credentials[username]["password"]
+        return hashlib.sha256(password.encode()).hexdigest() == hashed_pw
+    return False
+
+st.sidebar.title("Login")
+username = st.sidebar.text_input("Username")
+password = st.sidebar.text_input("Password", type="password")
+login_btn = st.sidebar.button("Login")
+
+if login_btn:
+    if check_password(username, password):
+        st.sidebar.success(f"Welcome {username}!")
+        authentication_status = True
+    else:
+        st.sidebar.error("Invalid username or password")
+        authentication_status = False
+else:
+    authentication_status = None
 
 if authentication_status is False:
-    st.error("Invalid username or password")
     st.stop()
 elif authentication_status is None:
-    st.warning("Please enter your login details")
     st.stop()
 
 
