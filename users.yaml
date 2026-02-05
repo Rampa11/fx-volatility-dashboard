@@ -1,6 +1,7 @@
 credentials:
   usernames:
-    admin:
-      email: admin@example.com
-      name: Admin User
-      password: "$2b$12$KIXk1Y9tX1zQw8t2uQz6jOe9Xqz7nYtYk3r9F6Yp9QJZ2H4uZ9K6a"
+    ShevireLotus:
+      email: aunukogbon@gmail.com
+      name: ShevireLotus
+      password: "$2b$12$o8nEgB1VJPqgXDJs/AZFkOjoyvnL/ep4dN0dxeLwpbeQEsxvZWYcW" 
+

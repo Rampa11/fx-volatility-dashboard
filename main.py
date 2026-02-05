@@ -1,269 +1,242 @@
 import streamlit as st
-import yaml
-import hashlib
-
-# ---- LOAD USERS ----
-with open("users.yaml") as file:
-    config = yaml.safe_load(file)
-
-# Extract credentials
-credentials = config["credentials"]["usernames"]
-
-# ---- LOGIN WIDGETS ----
-st.sidebar.title("Login")
-username = st.sidebar.text_input("Username")
-password = st.sidebar.text_input("Password", type="password")
-login_btn = st.sidebar.button("Login")
-
-# ---- LOGIN LOGIC ----
-authentication_status = None
-
-if login_btn:
-    if username in credentials:
-        # Hash entered password to compare
-        hashed_pw = hashlib.sha256(password.encode()).hexdigest()
-        if password == credentials[username]["password"]:
-            authentication_status = True
-            st.sidebar.success(f"Welcome {username}!")
-        else:
-            authentication_status = False
-            st.sidebar.error("Invalid username or password")
-    else:
-        authentication_status = False
-        st.sidebar.error("Invalid username or password")
-
-# ---- BLOCK APP IF NOT AUTHENTICATED ----
-if authentication_status is not True:
-    st.stop()
-
-
-import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
-from config import FX_PAIRS, TIMEFRAMES
+import yfinance as yf
+import plotly.express as px
+import stripe
+import requests
+import smtplib
+from email.mime.text import MIMEText
 
-# ------------------------------
-# Page Configuration
-# ------------------------------
-st.set_page_config(page_title="FX Volatility Dashboard", layout="wide")
-
-st.title("📊 Forex Volatility Dashboard")
-
-# ======================================================
-# 📖 LITERATURE SECTION
-# ======================================================
-st.subheader("📖 FOREX VOLATILITY DASHBOARD")
-
-st.markdown("""
-### Concept
-To begin with, we must first grasp the meaning of Forex Volatility Dashboard. 
-For clearer understanding, we shall first define what Forex Volatility means, 
-and also what a Dashboard means.
-""")
-
-with st.expander("Forex Volatility"):
-    st.markdown("""
-Forex volatility defines how much currency pairs fluctuate within a given period of time.
-
-- **High volatility** → extreme price swings, high risk & high reward  
-- **Low volatility** → smaller price movements, lower risk & lower reward
-""")
-
-with st.expander("Dashboard"):
-    st.markdown("""
-A dashboard is a **visual interface** that displays key information, trends, and metrics
-on a single screen using charts, tables, and color coding.
-""")
-
-with st.expander("Forex Volatility Dashboard"):
-    st.markdown("""
-A Forex Volatility Dashboard shows how much different currency pairs are moving
-over a given period of time in one place.
-
-It typically includes:
-
-1. **Currency Pairs** – EUR/USD, GBP/JPY, USD/CHF, etc  
-2. **Volatility Measures**
-   - ATR (Average True Range)
-   - % Volatility
-   - Pip Range
-   - Session Volatility (Asia, London, NY)
-3. **Timeframes**
-   - Intraday (1h)
-   - Daily
-   - Weekly
-   - Quarterly
-   - Yearly
-4. **Color Coding**
-   - 🔴 High Volatility
-   - 🟠 Medium Volatility
-   - 🟢 Low Volatility
-""")
-
-with st.expander("Uses of a Forex Volatility Dashboard"):
-    st.markdown("""
-1. **Trading Opportunities** – High volatility suits scalping & day trading  
-2. **Risk Management** – Volatile pairs require wider stop losses  
-3. **Pair Selection** – Quickly identify active vs dead markets
-""")
-
-st.divider()
-
-# ======================================================
-# ⚙️ SIDEBAR CONTROLS
-# ======================================================
-st.sidebar.header("⚙️ Dashboard Controls")
-
-selected_pair = st.sidebar.selectbox(
-    "Select FX Pair", list(FX_PAIRS.keys())
+# =================================================
+# PAGE CONFIG
+# =================================================
+st.set_page_config(
+    page_title="FX Volatility Pro",
+    layout="wide",
 )
 
-selected_tf = st.sidebar.selectbox(
-    "Select Timeframe", list(TIMEFRAMES.keys())
+# =================================================
+# DARK FOREX THEME
+# =================================================
+st.markdown(
+    """
+<style>
+body {
+    background-color: #0e1117;
+    color: #e0e0e0;
+}
+[data-testid="stSidebar"] {
+    background-color: #111827;
+}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-symbol = FX_PAIRS[selected_pair]
-tf_info = TIMEFRAMES[selected_tf]
+# =================================================
+# SECRETS
+# =================================================
+STRIPE_API_KEY = st.secrets.get("STRIPE_API_KEY", "")
+STRIPE_PRICE_ID = st.secrets.get("STRIPE_PRICE_ID", "")
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+SMTP_EMAIL = st.secrets.get("SMTP_EMAIL", "")
+SMTP_PASSWORD = st.secrets.get("SMTP_PASSWORD", "")
 
-# ======================================================
-# 📥 DATA FETCHING
-# ======================================================
-@st.cache_data(ttl=600)
-def fetch_data(symbol, interval, period):
-    df = yf.download(symbol, interval=interval, period=period)
+stripe.api_key = STRIPE_API_KEY
+
+# =================================================
+# SESSION STATE
+# =================================================
+for k, v in {
+    "logged_in": False,
+    "user_email": None,
+    "tier": "Free",
+}.items():
+    st.session_state.setdefault(k, v)
+
+# =================================================
+# HEADER
+# =================================================
+l, r = st.columns([7, 3])
+
+with l:
+    st.title("📊 FX Volatility Pro")
+
+with r:
+    if st.session_state.logged_in:
+        st.success(f"{st.session_state.user_email} | {st.session_state.tier}")
+        if st.button("Logout"):
+            st.session_state.update(
+                {"logged_in": False, "tier": "Free", "user_email": None}
+            )
+            st.rerun()
+    else:
+        email = st.text_input("Email")
+        if st.button("Subscribe / Login"):
+            st.session_state.logged_in = True
+            st.session_state.user_email = email
+            st.session_state.tier = "Pro"
+            st.rerun()
+
+# =================================================
+# SIDEBAR
+# =================================================
+st.sidebar.header("⚙️ Controls")
+
+pairs = {
+    "EUR/USD": "EURUSD=X",
+    "GBP/USD": "GBPUSD=X",
+    "USD/JPY": "USDJPY=X",
+    "EUR/JPY": "EURJPY=X",
+    "GBP/JPY": "GBPJPY=X",
+}
+
+tf = st.sidebar.selectbox(
+    "Timeframe",
+    ["5m", "15m", "30m", "1h", "4h", "1d"],
+)
+
+period_map = {
+    "5m": "30d",
+    "15m": "60d",
+    "30m": "6mo",
+    "1h": "60d",
+    "4h": "6mo",
+    "1d": "2y",
+}
+
+pair_name = st.sidebar.selectbox("Pair", pairs.keys())
+symbol = pairs[pair_name]
+
+# =================================================
+# DATA
+# =================================================
+@st.cache_data(ttl=300)
+def load_data(sym, period, tf):
+    df = yf.download(
+        sym,
+        period=period,
+        interval=tf,
+        auto_adjust=True,
+        progress=False,
+        threads=False,
+    )
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0] for c in df.columns]
     return df.dropna()
 
-df = fetch_data(symbol, tf_info["interval"], tf_info["period"])
+def atr(h, l, c, n=14):
+    tr = pd.concat(
+        [h - l, (h - c.shift()).abs(), (l - c.shift()).abs()],
+        axis=1,
+    ).max(axis=1)
+    return tr.rolling(n).mean()
 
-# ======================================================
-# 📊 VOLATILITY CALCULATION
-# ======================================================
-def calculate_annualized_volatility(series, interval):
-    returns = series.pct_change().dropna()
+def score(vol):
+    return int(np.clip(100 * (vol - 0.2) / (3.0 - 0.2), 0, 100))
 
-    factors = {
-        "1h": np.sqrt(252 * 24),
-        "1d": np.sqrt(252),
-        "1wk": np.sqrt(52),
-        "3mo": np.sqrt(4),
-        "1y": 1
-    }
+# =================================================
+# VOLATILITY TABLE
+# =================================================
+st.subheader("⚡ Market Volatility")
 
-    vol = returns.std() * factors.get(interval, 1) * 100
+rows = []
+for name, sym in pairs.items():
+    df = load_data(sym, period_map[tf], tf)
+    if df.empty:
+        continue
 
-    # Ensure scalar float
-    if isinstance(vol, pd.Series):
-        vol = vol.iloc[0]
+    vol = df["Close"].pct_change().rolling(20).std().iloc[-1] * 100
+    rows.append(
+        {
+            "Pair": name,
+            "Vol %": round(vol, 2),
+            "Score": score(vol),
+        }
+    )
 
-    return float(vol)
+table = pd.DataFrame(rows).sort_values("Score", ascending=False)
+top = table.iloc[0]
 
-# ======================================================
-# ATR (PIP-BASED VOLATILITY)
-# ======================================================
+st.error(f"🔥 Hot Pair: {top['Pair']} | Score {top['Score']}")
+st.dataframe(table, use_container_width=True)
 
-def calculate_atr(df, period=14):
-    if df is None or df.empty or len(df) < period:
-        return None
+# =================================================
+# ALERTS (PRO)
+# =================================================
+def send_telegram(msg):
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
 
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
+def send_email(msg):
+    if not SMTP_EMAIL:
+        return
+    mime = MIMEText(msg)
+    mime["Subject"] = "FX Volatility Alert"
+    mime["From"] = SMTP_EMAIL
+    mime["To"] = st.session_state.user_email
 
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs()
-    ], axis=1).max(axis=1)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(SMTP_EMAIL, SMTP_PASSWORD)
+        s.send_message(mime)
 
-    atr = tr.rolling(window=period).mean()
+if st.session_state.tier == "Pro":
+    st.subheader("🔔 Alerts")
+    threshold = st.slider("Alert Score", 20, 100, 70)
 
-    if atr.empty:
-        return None
+    if top["Score"] >= threshold:
+        alert_msg = f"🔥 {top['Pair']} volatility score {top['Score']}"
+        st.warning(alert_msg)
 
-    return atr.iloc[-1]
+        if st.button("Send Alert Now"):
+            send_telegram(alert_msg)
+            send_email(alert_msg)
+            st.success("Alert sent!")
 
+# =================================================
+# STRIPE PAYWALL (FREE USERS)
+# =================================================
+if st.session_state.tier == "Free":
+    st.subheader("🚀 Go Pro")
 
-atr_value = calculate_atr(df)
+    if st.button("Subscribe with Stripe"):
+        checkout = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[
+                {"price": STRIPE_PRICE_ID, "quantity": 1}
+            ],
+            mode="subscription",
+            success_url="https://yourapp.streamlit.app",
+            cancel_url="https://yourapp.streamlit.app",
+        )
+        st.markdown(
+            f"[👉 Complete Subscription]({checkout.url})",
+            unsafe_allow_html=True,
+        )
 
-if atr_value is not None:
-    st.metric("ATR", round(atr_value, 4))
-else:
-    st.info("ATR not available for the selected period")
-# ======================================================
-# 📈 SINGLE PAIR OUTPUT
-# ======================================================
-st.subheader(f"📈 {selected_pair} Analysis")
+# =================================================
+# PAIR DETAIL
+# =================================================
+st.subheader("📈 Pair Analysis")
 
-# Calculate volatility & ATR
-volatility = calculate_annualized_volatility(
-    df["Close"], tf_info["interval"]
+df = load_data(symbol, period_map[tf], tf)
+df["ATR"] = atr(df["High"], df["Low"], df["Close"])
+df["Vol"] = df["Close"].pct_change().rolling(20).std() * 100
+
+st.plotly_chart(
+    px.line(df, y="ATR", title=f"{pair_name} ATR"),
+    use_container_width=True,
+)
+st.plotly_chart(
+    px.line(df, y="Vol", title=f"{pair_name} Volatility"),
+    use_container_width=True,
 )
 
-atr_value = calculate_atr(df)
-
-# Display metrics side-by-side
-col1, col2 = st.columns(2)
-
-col1.metric(
-    label="Annualized Volatility (%)",
-    value=f"{volatility:.2f}"
-)
-
-col2.metric(
-    label="ATR (Pip-Based Volatility)",
-    value=f"{atr_value:.2f}"
-)
-
-# Price chart
-st.line_chart(df["Close"], height=350)
-
-with st.expander("View Data Table"):
-    st.dataframe(df)
-
-
-# ======================================================
-# 🌡️ MULTI-PAIR VOLATILITY TABLE
-# ======================================================
-st.subheader("🌡️ Volatility Overview – All FX Pairs")
-
-@st.cache_data(ttl=600)
-def fetch_all_volatility(fx_pairs, interval, period):
-    rows = []
-    for pair, symbol in fx_pairs.items():
-        df = yf.download(symbol, interval=interval, period=period)
-        df = df.dropna()
-        if df.empty:
-            continue
-
-        vol = calculate_annualized_volatility(df["Close"], interval)
-        rows.append({
-            "FX Pair": pair,
-            "Volatility (%)": round(vol, 2)
-        })
-
-    return pd.DataFrame(rows)
-
-vol_df = fetch_all_volatility(
-    FX_PAIRS,
-    tf_info["interval"],
-    tf_info["period"]
-)
-
-def color_code(vol):
-    if vol >= 15:
-        return f"🔴 {vol}"
-    elif vol >= 7:
-        return f"🟠 {vol}"
-    else:
-        return f"🟢 {vol}"
-
-vol_df["Volatility (%)"] = vol_df["Volatility (%)"].apply(color_code)
-
-st.dataframe(vol_df, use_container_width=True)
-
-# ======================================================
+# =================================================
 # FOOTER
-# ======================================================
-st.write("---")
-st.caption("FX Volatility Dashboard • Powered by Streamlit & Yahoo Finance")
+# =================================================
+st.caption("© FX Volatility Pro — SaaS-ready trading intelligence")

@@ -1,19 +1,40 @@
+# ========================================
 # Python compiled files
+# ========================================
 __pycache__/
 *.py[cod]
 
-# Virtual environment
+# ========================================
+# Virtual environments
+# ========================================
 .venv/
 env/
 venv/
 
-# Jupyter / IPython checkpoints
+# ========================================
+# Jupyter / IPython
+# ========================================
 .ipynb_checkpoints/
 
-# VS Code settings
+# ========================================
+# Editor settings
+# ========================================
 .vscode/
 *.code-workspace
 
-# Mac / Windows system files
+# ========================================
+# OS files
+# ========================================
 .DS_Store
 Thumbs.db
+
+# ========================================
+# Streamlit secrets (CRITICAL)
+# ========================================
+.streamlit/secrets.toml
+
+# ========================================
+# Environment variables
+# ========================================
+.env
+.env.*
