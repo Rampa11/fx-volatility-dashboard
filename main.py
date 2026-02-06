@@ -1,242 +1,191 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import plotly.express as px
 import stripe
 import requests
-import smtplib
-from email.mime.text import MIMEText
+from supabase import create_client
+import threading
+import time
 
 # =================================================
 # PAGE CONFIG
 # =================================================
-st.set_page_config(
-    page_title="FX Volatility Pro",
-    layout="wide",
-)
+st.set_page_config("FX Volatility Pro", layout="wide")
 
 # =================================================
-# DARK FOREX THEME
+# THEME
 # =================================================
-st.markdown(
-    """
+st.markdown("""
 <style>
-body {
-    background-color: #0e1117;
-    color: #e0e0e0;
-}
-[data-testid="stSidebar"] {
-    background-color: #111827;
-}
+body { background:#0e1117; color:#e0e0e0 }
+[data-testid="stSidebar"] { background:#111827 }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # =================================================
 # SECRETS
 # =================================================
-STRIPE_API_KEY = st.secrets.get("STRIPE_API_KEY", "")
-STRIPE_PRICE_ID = st.secrets.get("STRIPE_PRICE_ID", "")
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
-SMTP_EMAIL = st.secrets.get("SMTP_EMAIL", "")
-SMTP_PASSWORD = st.secrets.get("SMTP_PASSWORD", "")
+stripe.api_key = st.secrets["STRIPE_API_KEY"]
 
-stripe.api_key = STRIPE_API_KEY
+supabase = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
+)
+
+TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+
+APP_URL = "https://yourapp.streamlit.app"
 
 # =================================================
-# SESSION STATE
+# SESSION
 # =================================================
-for k, v in {
-    "logged_in": False,
-    "user_email": None,
-    "tier": "Free",
-}.items():
-    st.session_state.setdefault(k, v)
+st.session_state.setdefault("user", None)
+st.session_state.setdefault("tier", "Free")
 
 # =================================================
 # HEADER
 # =================================================
-l, r = st.columns([7, 3])
-
+l, r = st.columns([7,3])
 with l:
     st.title("📊 FX Volatility Pro")
 
 with r:
-    if st.session_state.logged_in:
-        st.success(f"{st.session_state.user_email} | {st.session_state.tier}")
+    if st.session_state.user:
+        st.success(f"{st.session_state.user['email']} | {st.session_state.tier}")
         if st.button("Logout"):
-            st.session_state.update(
-                {"logged_in": False, "tier": "Free", "user_email": None}
-            )
+            st.session_state.clear()
             st.rerun()
     else:
         email = st.text_input("Email")
-        if st.button("Subscribe / Login"):
-            st.session_state.logged_in = True
-            st.session_state.user_email = email
-            st.session_state.tier = "Pro"
+        if st.button("Login"):
+            user = supabase.table("users").select("*").eq("email", email).execute()
+            if user.data:
+                st.session_state.user = user.data[0]
+                st.session_state.tier = user.data[0]["tier"]
+            else:
+                supabase.table("users").insert({"email": email, "tier": "Free"}).execute()
+                st.session_state.user = {"email": email, "tier": "Free"}
             st.rerun()
 
 # =================================================
-# SIDEBAR
+# TELEGRAM CHANNEL
 # =================================================
-st.sidebar.header("⚙️ Controls")
-
-pairs = {
-    "EUR/USD": "EURUSD=X",
-    "GBP/USD": "GBPUSD=X",
-    "USD/JPY": "USDJPY=X",
-    "EUR/JPY": "EURJPY=X",
-    "GBP/JPY": "GBPJPY=X",
-}
-
-tf = st.sidebar.selectbox(
-    "Timeframe",
-    ["5m", "15m", "30m", "1h", "4h", "1d"],
+st.markdown(
+    "📣 **Join our Telegram channel:** "
+    "[Forex Volatility Dashboard](https://t.me/+12ORZkIT0YNiOTI0)"
 )
 
-period_map = {
-    "5m": "30d",
-    "15m": "60d",
-    "30m": "6mo",
-    "1h": "60d",
-    "4h": "6mo",
-    "1d": "2y",
+# =================================================
+# FX FEED SELECTION
+# =================================================
+feed = st.sidebar.selectbox(
+    "FX Data Feed",
+    ["Yahoo (Free)", "OANDA", "Polygon", "FXCM"]
+)
+
+def get_fx_data(pair):
+    if feed == "Yahoo (Free)":
+        import yfinance as yf
+        return yf.download(pair, period="60d", interval="1h")
+    elif feed == "OANDA":
+        # real OANDA REST call here
+        return pd.DataFrame()
+    elif feed == "Polygon":
+        return pd.DataFrame()
+    elif feed == "FXCM":
+        return pd.DataFrame()
+
+# =================================================
+# VOLATILITY LOGIC
+# =================================================
+pairs = {
+    "EUR/USD":"EURUSD=X",
+    "GBP/USD":"GBPUSD=X",
+    "USD/JPY":"USDJPY=X"
 }
 
-pair_name = st.sidebar.selectbox("Pair", pairs.keys())
-symbol = pairs[pair_name]
-
-# =================================================
-# DATA
-# =================================================
-@st.cache_data(ttl=300)
-def load_data(sym, period, tf):
-    df = yf.download(
-        sym,
-        period=period,
-        interval=tf,
-        auto_adjust=True,
-        progress=False,
-        threads=False,
-    )
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [c[0] for c in df.columns]
-    return df.dropna()
-
-def atr(h, l, c, n=14):
-    tr = pd.concat(
-        [h - l, (h - c.shift()).abs(), (l - c.shift()).abs()],
-        axis=1,
-    ).max(axis=1)
-    return tr.rolling(n).mean()
-
-def score(vol):
-    return int(np.clip(100 * (vol - 0.2) / (3.0 - 0.2), 0, 100))
-
-# =================================================
-# VOLATILITY TABLE
-# =================================================
-st.subheader("⚡ Market Volatility")
-
-rows = []
-for name, sym in pairs.items():
-    df = load_data(sym, period_map[tf], tf)
-    if df.empty:
-        continue
-
-    vol = df["Close"].pct_change().rolling(20).std().iloc[-1] * 100
-    rows.append(
-        {
-            "Pair": name,
-            "Vol %": round(vol, 2),
-            "Score": score(vol),
-        }
-    )
+rows=[]
+for name,sym in pairs.items():
+    df = get_fx_data(sym)
+    if df.empty: continue
+    vol = df["Close"].pct_change().rolling(20).std().iloc[-1]*100
+    rows.append({"Pair":name,"Vol%":round(vol,2),"Score":min(100,int(vol*30))})
 
 table = pd.DataFrame(rows).sort_values("Score", ascending=False)
 top = table.iloc[0]
 
+st.subheader("⚡ Market Volatility")
 st.error(f"🔥 Hot Pair: {top['Pair']} | Score {top['Score']}")
 st.dataframe(table, use_container_width=True)
 
 # =================================================
+# PRO FEATURES LOCK
+# =================================================
+if st.session_state.tier != "Pro":
+    st.info("🔒 Pro alerts are locked. Upgrade to enable alerts.")
+
+# =================================================
 # ALERTS (PRO)
 # =================================================
-def send_telegram(msg):
-    if not TELEGRAM_BOT_TOKEN:
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
-
-def send_email(msg):
-    if not SMTP_EMAIL:
-        return
-    mime = MIMEText(msg)
-    mime["Subject"] = "FX Volatility Alert"
-    mime["From"] = SMTP_EMAIL
-    mime["To"] = st.session_state.user_email
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-        s.login(SMTP_EMAIL, SMTP_PASSWORD)
-        s.send_message(mime)
+def send_alert(msg):
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+        data={"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+    )
 
 if st.session_state.tier == "Pro":
-    st.subheader("🔔 Alerts")
-    threshold = st.slider("Alert Score", 20, 100, 70)
-
+    threshold = st.slider("Alert Score", 50, 100, 70)
     if top["Score"] >= threshold:
-        alert_msg = f"🔥 {top['Pair']} volatility score {top['Score']}"
-        st.warning(alert_msg)
-
-        if st.button("Send Alert Now"):
-            send_telegram(alert_msg)
-            send_email(alert_msg)
-            st.success("Alert sent!")
+        if st.button("Send Alert"):
+            send_alert(f"🔥 {top['Pair']} volatility score {top['Score']}")
 
 # =================================================
-# STRIPE PAYWALL (FREE USERS)
+# AUTO ALERT BACKGROUND JOB (SAFE PATTERN)
 # =================================================
-if st.session_state.tier == "Free":
-    st.subheader("🚀 Go Pro")
+def alert_worker():
+    while True:
+        if st.session_state.get("tier") == "Pro":
+            if top["Score"] >= 80:
+                send_alert(f"🚨 AUTO ALERT {top['Pair']} {top['Score']}")
+        time.sleep(900)
 
-    if st.button("Subscribe with Stripe"):
-        checkout = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[
-                {"price": STRIPE_PRICE_ID, "quantity": 1}
-            ],
+@st.cache_resource
+def start_worker():
+    t = threading.Thread(target=alert_worker, daemon=True)
+    t.start()
+
+start_worker()
+
+# =================================================
+# STRIPE PAYMENTS
+# =================================================
+st.subheader("💳 Upgrade or Support")
+
+c1,c2 = st.columns(2)
+
+with c1:
+    if st.button("🚀 Go Pro"):
+        s = stripe.checkout.Session.create(
             mode="subscription",
-            success_url="https://yourapp.streamlit.app",
-            cancel_url="https://yourapp.streamlit.app",
+            line_items=[{"price": st.secrets["STRIPE_SUB_PRICE_ID"], "quantity":1}],
+            success_url=f"{APP_URL}?success=true",
+            cancel_url=APP_URL
         )
-        st.markdown(
-            f"[👉 Complete Subscription]({checkout.url})",
-            unsafe_allow_html=True,
+        st.markdown(f"[Subscribe]({s.url})", unsafe_allow_html=True)
+
+with c2:
+    if st.button("☕ Donate"):
+        s = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{"price": st.secrets["STRIPE_DONATION_PRICE_ID"], "quantity":1}],
+            success_url=f"{APP_URL}?success=true",
+            cancel_url=APP_URL
         )
-
-# =================================================
-# PAIR DETAIL
-# =================================================
-st.subheader("📈 Pair Analysis")
-
-df = load_data(symbol, period_map[tf], tf)
-df["ATR"] = atr(df["High"], df["Low"], df["Close"])
-df["Vol"] = df["Close"].pct_change().rolling(20).std() * 100
-
-st.plotly_chart(
-    px.line(df, y="ATR", title=f"{pair_name} ATR"),
-    use_container_width=True,
-)
-st.plotly_chart(
-    px.line(df, y="Vol", title=f"{pair_name} Volatility"),
-    use_container_width=True,
-)
+        st.markdown(f"[Donate]({s.url})", unsafe_allow_html=True)
 
 # =================================================
 # FOOTER
 # =================================================
-st.caption("© FX Volatility Pro — SaaS-ready trading intelligence")
+st.caption("© FX Volatility Pro — Institutional-grade FX volatility intelligence")
