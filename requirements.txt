@@ -5,13 +5,8 @@ starlette==0.50.0
 streamlit>=1.30.0
 
 # Payments & database
-stripe==14.3.0
 supabase==2.27.3
-postgrest==2.27.3
-realtime==2.27.3
-storage3==2.27.3
-supabase-auth==2.27.3
-supabase-functions==2.27.3
+stripe==14.3.0
 
 # Data & finance
 yfinance>=0.2.30
