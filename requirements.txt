@@ -23,3 +23,4 @@ requests>=2.31.0
 python-dotenv==1.2.1
 PyYAML
 bcrypt
+streamlit-autorefresh>=0.2.0
